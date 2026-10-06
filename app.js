@@ -4,7 +4,7 @@ const dateKey=(date=new Date())=>`${date.getFullYear()}-${String(date.getMonth()
 const dayOffset=n=>{const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+n);return dateKey(d)};
 const parseDate=k=>new Date(k+'T12:00:00');
 const money=n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2}).format(n);
-let state={name:'',brand:'',baseline:10,target:5,cost:15,start:dateKey(),days:{}};
+let state={name:'',brand:'',baseline:10,target:5,cost:15,start:dateKey(),days:{},sound:true};
 let storageOK=true;
 try{const raw=localStorage.getItem(STORAGE);if(raw){const s=JSON.parse(raw);if(s&&typeof s==='object'&&s.days&&typeof s.days==='object'){state={...state,...s};state.days=Object.fromEntries(Object.entries(s.days).filter(([k,v])=>/^\d{4}-\d{2}-\d{2}$/.test(k)&&Array.isArray(v)&&v.every(e=>e&&Number.isFinite(e.time)&&Number.isFinite(e.cost)&&e.cost>=0)));for(const k of ['baseline','target','cost'])if(!Number.isFinite(state[k])||state[k]<0)state[k]=k==='cost'?15:k==='baseline'?10:5;if(typeof state.name!=='string')state.name='';if(typeof state.brand!=='string')state.brand='';if(!/^\d{4}-\d{2}-\d{2}$/.test(state.start)||!Number.isFinite(parseDate(state.start).getTime())||state.start>dateKey())state.start=dateKey()}}}catch{storageOK=false}
 function toast(msg){$('#toast').textContent=msg;$('#toast').classList.add('visible');clearTimeout(toast.timeout);toast.timeout=setTimeout(()=>$('#toast').classList.remove('visible'),3500)}
@@ -15,7 +15,11 @@ function render(){
  $('#date-label').textContent=new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).toUpperCase();
  $('#greeting').textContent=state.name?`A fresh start, ${state.name}.`:'A fresh start, every day.';
  $('#profile-name').textContent=state.name||'Your space';$('#avatar').textContent=(state.name||'Y').slice(0,1).toUpperCase();
- $('#today').textContent=count;$('#yesterday').textContent=yesterday?yesterday.length:'—';$('#yesterday-note').textContent=yesterday?'cigarettes':'not tracked';
+ $('#today').textContent=count;$('#log').setAttribute('aria-label',`Log a cigarette. ${count} consumed today.`);$('#yesterday').textContent=yesterday?yesterday.length:'—';$('#yesterday-note').textContent=yesterday?'cigarettes':'not tracked';
+ const monthDays=Object.entries(state.days).filter(([key])=>key.startsWith(today.slice(0,7))&&key<=today);
+ $('#month-average').textContent=monthDays.length?(monthDays.reduce((sum,[,entries])=>sum+entries.length,0)/monthDays.length).toFixed(1):'—';
+ $('#month-caption').textContent=monthDays.length?`per day · ${monthDays.length} tracked`:'no days tracked';
+ $('#sound-toggle').textContent=state.sound===false?'Sound off':'Sound on';$('#sound-toggle').setAttribute('aria-pressed',String(state.sound!==false));
  $('#goal-text').textContent=`· ${state.target} cigarettes`;
  $('#remaining').textContent=count>state.target?`${count-state.target} over target`:state.target===count?'Target reached':`${state.target-count} remaining`;
  $('#goal-progress').style.width=`${state.target?Math.min(100,count/state.target*100):count?100:0}%`;
@@ -32,7 +36,16 @@ function render(){
 }
 function navigate(view){for(const v of ['overview','history','plan'])$(`#${v}-view`).hidden=v!==view;document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===view));$('#view-label').textContent={overview:'Overview',history:'My history',plan:'My plan'}[view];if(view==='plan'){const form=$('#plan-form');for(const key of ['name','brand','baseline','target','cost','start'])form.elements.namedItem(key).value=state[key];form.elements.start.max=dateKey()}window.scrollTo({top:0,behavior:'smooth'})}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>navigate(b.dataset.view));$('#settings').onclick=()=>navigate('plan');
-$('#log').onclick=()=>{const key=dateKey();if(!state.days[key])state.days[key]=[];state.days[key].push({time:Date.now(),cost:state.cost});persist();render();toast('Cigarette logged. Keep showing up.')};
+let tapAudio;
+function playTap(){
+ if(state.sound===false)return;
+ try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;tapAudio??=new Audio();
+ const click=()=>{if(tapAudio.state!=='running')return;const now=tapAudio.currentTime,osc=tapAudio.createOscillator(),gain=tapAudio.createGain();osc.type='sine';osc.frequency.setValueAtTime(700,now);osc.frequency.exponentialRampToValueAtTime(220,now+.055);gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.16,now+.004);gain.gain.exponentialRampToValueAtTime(.0001,now+.065);osc.connect(gain);gain.connect(tapAudio.destination);osc.onended=()=>{osc.disconnect();gain.disconnect()};osc.start(now);osc.stop(now+.075)};
+ if(tapAudio.state==='suspended')tapAudio.resume().then(click).catch(()=>{});else click();
+ }catch{/* Logging remains available when audio is unsupported. */}
+}
+$('#sound-toggle').onclick=()=>{state.sound=state.sound===false;persist();render();if(state.sound)playTap()};
+$('#log').onclick=()=>{playTap();const key=dateKey();if(!state.days[key])state.days[key]=[];state.days[key].push({time:Date.now(),cost:state.cost});persist();render();toast('Cigarette logged. Keep showing up.')};
 $('#undo').onclick=()=>{const entries=state.days[dateKey()];if(entries?.length){entries.pop();if(!entries.length)delete state.days[dateKey()];persist();render();toast('Last cigarette removed.')}};
 $('#plan-form').onsubmit=e=>{e.preventDefault();const f=e.target;const baseline=Number(f.elements.baseline.value),target=Number(f.elements.target.value),cost=Number(f.elements.cost.value),start=f.elements.start.value;if(!f.checkValidity()||baseline<1||target<0||cost<0||start>dateKey()||!Number.isFinite(parseDate(start).getTime())){toast('Please enter valid details and a start date no later than today.');return}const firstLog=Object.keys(state.days).sort()[0];if(firstLog&&start>firstLog){toast('Start date must include your earliest recorded day.');return}Object.assign(state,{name:f.elements.name.value.trim(),brand:f.elements.brand.value.trim(),baseline,target,cost,start});persist();render();toast('Your plan is saved.');navigate('overview')};
 $('#export').onclick=()=>{const blob=new Blob([JSON.stringify({app:'Clear Day',exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`clear-day-${dateKey()}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Your data export is ready.')};
