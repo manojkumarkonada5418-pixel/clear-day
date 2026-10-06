@@ -36,15 +36,26 @@ function render(){
 }
 function navigate(view){for(const v of ['overview','history','plan'])$(`#${v}-view`).hidden=v!==view;document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===view));$('#view-label').textContent={overview:'Overview',history:'My history',plan:'My plan'}[view];if(view==='plan'){const form=$('#plan-form');for(const key of ['name','brand','baseline','target','cost','start'])form.elements.namedItem(key).value=state[key];form.elements.start.max=dateKey()}window.scrollTo({top:0,behavior:'smooth'})}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>navigate(b.dataset.view));$('#settings').onclick=()=>navigate('plan');
-let tapAudio;
+let tapAudio,inhaleBuffer,activeInhale;
 function playTap(){
  if(state.sound===false)return;
  try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)return;tapAudio??=new Audio();
- const click=()=>{if(tapAudio.state!=='running')return;const now=tapAudio.currentTime,osc=tapAudio.createOscillator(),gain=tapAudio.createGain();osc.type='sine';osc.frequency.setValueAtTime(700,now);osc.frequency.exponentialRampToValueAtTime(220,now+.055);gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.16,now+.004);gain.gain.exponentialRampToValueAtTime(.0001,now+.065);osc.connect(gain);gain.connect(tapAudio.destination);osc.onended=()=>{osc.disconnect();gain.disconnect()};osc.start(now);osc.stop(now+.075)};
+ const click=()=>{
+  if(tapAudio.state!=='running'||state.sound===false)return;
+  if(activeInhale){activeInhale.stop();activeInhale=null}
+  const duration=.95,now=tapAudio.currentTime;
+  if(!inhaleBuffer){inhaleBuffer=tapAudio.createBuffer(1,Math.ceil(tapAudio.sampleRate*duration),tapAudio.sampleRate);const samples=inhaleBuffer.getChannelData(0);for(let i=0;i<samples.length;i++)samples[i]=Math.random()*2-1}
+  const breath=tapAudio.createBufferSource(),filter=tapAudio.createBiquadFilter(),gain=tapAudio.createGain(),compressor=tapAudio.createDynamicsCompressor();
+  breath.buffer=inhaleBuffer;filter.type='bandpass';filter.Q.value=.65;filter.frequency.setValueAtTime(850,now);filter.frequency.exponentialRampToValueAtTime(1700,now+.55);filter.frequency.exponentialRampToValueAtTime(1050,now+duration);
+  gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(1.15,now+.16);gain.gain.linearRampToValueAtTime(1.45,now+.52);gain.gain.exponentialRampToValueAtTime(.0001,now+duration);
+  compressor.threshold.value=-12;compressor.knee.value=12;compressor.ratio.value=4;compressor.attack.value=.003;compressor.release.value=.1;
+  breath.connect(filter);filter.connect(gain);gain.connect(compressor);compressor.connect(tapAudio.destination);
+  breath.onended=()=>{breath.disconnect();filter.disconnect();gain.disconnect();compressor.disconnect();if(activeInhale===breath)activeInhale=null};activeInhale=breath;breath.start(now);breath.stop(now+duration);
+ };
  if(tapAudio.state==='suspended')tapAudio.resume().then(click).catch(()=>{});else click();
  }catch{/* Logging remains available when audio is unsupported. */}
 }
-$('#sound-toggle').onclick=()=>{state.sound=state.sound===false;persist();render();if(state.sound)playTap()};
+$('#sound-toggle').onclick=()=>{state.sound=state.sound===false;if(!state.sound&&activeInhale){activeInhale.stop();activeInhale=null}persist();render();if(state.sound)playTap()};
 $('#log').onclick=()=>{playTap();const key=dateKey();if(!state.days[key])state.days[key]=[];state.days[key].push({time:Date.now(),cost:state.cost});persist();render();toast('Cigarette logged. Keep showing up.')};
 $('#undo').onclick=()=>{const entries=state.days[dateKey()];if(entries?.length){entries.pop();if(!entries.length)delete state.days[dateKey()];persist();render();toast('Last cigarette removed.')}};
 $('#plan-form').onsubmit=e=>{e.preventDefault();const f=e.target;const baseline=Number(f.elements.baseline.value),target=Number(f.elements.target.value),cost=Number(f.elements.cost.value),start=f.elements.start.value;if(!f.checkValidity()||baseline<1||target<0||cost<0||start>dateKey()||!Number.isFinite(parseDate(start).getTime())){toast('Please enter valid details and a start date no later than today.');return}const firstLog=Object.keys(state.days).sort()[0];if(firstLog&&start>firstLog){toast('Start date must include your earliest recorded day.');return}Object.assign(state,{name:f.elements.name.value.trim(),brand:f.elements.brand.value.trim(),baseline,target,cost,start});persist();render();toast('Your plan is saved.');navigate('overview')};
