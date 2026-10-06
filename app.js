@@ -27,7 +27,7 @@ function render(){
  $('#goal-progress').style.background=over?'#d33838':at?'#c28b28':'#9bad7f';
  $('.daily-goal').classList.toggle('over-limit',over);$('.daily-goal').classList.toggle('at-limit',at&&!over);
  $('#limit-error').hidden=!over;$('#limit-error').textContent=over?`Daily limit exceeded: ${count} logged, ${count-state.target} over your ${state.target}-cigarette limit.`:'';
- $('#log').disabled=!state.planComplete;
+ $('#log').disabled=!state.planComplete;$('#setup-notice').hidden=state.planComplete;
  renderPlanSummary();
  $('#last-log').textContent=logs.length?`Last logged at ${new Date(logs.at(-1).time).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})}`:'Every check-in is a step forward.';$('#undo').disabled=!logs.length;
  $('#spent').textContent=money(logs.reduce((sum,e)=>sum+e.cost,0));$('#avoided').replaceChildren(document.createTextNode(Math.max(0,state.baseline-count)+' '));const em=document.createElement('em');em.textContent='cigarettes';$('#avoided').append(em);
@@ -93,7 +93,7 @@ function showQuestion(){
  input.type=q.type;input.required=q.type!=='text';input.value=planDraft[q.key]??'';input.setAttribute('aria-invalid','false');
  if(q.min!==undefined)input.min=q.min;if(q.max!==undefined)input.max=q.max;if(q.step!==undefined)input.step=q.step;if(q.maxLength)input.maxLength=q.maxLength;if(q.placeholder)input.placeholder=q.placeholder;
  if(q.type==='date')input.max=dateKey();
- $('#question-error').textContent='';$('#question-back').hidden=planStep===0;$('#question-next').textContent=planStep===planQuestions.length-1?'Start tracking →':'Next →';$('#plan-cancel').hidden=!state.planComplete;
+ $('#question-error').textContent='';$('#question-back').hidden=planStep===0;$('#question-next').textContent=planStep===planQuestions.length-1?'Start tracking →':'Next →';$('#plan-cancel').hidden=false;
  input.focus();
 }
 function openPlan(){planStep=0;planDraft={...state};if(!state.planComplete){planDraft.name='';planDraft.brand='';planDraft.baseline='';planDraft.target='';planDraft.cost='';planDraft.start=dateKey()}if(!$('#plan-dialog').open)$('#plan-dialog').showModal();showQuestion()}
@@ -104,6 +104,6 @@ function validateAnswer(q,value){
 }
 $('#question-form').onsubmit=e=>{e.preventDefault();const q=planQuestions[planStep],input=$('#plan-answer'),value=input.value.trim(),error=validateAnswer(q,value);if(error){$('#question-error').textContent=error;input.setAttribute('aria-invalid','true');input.focus();return}planDraft[q.key]=q.type==='number'?Number(value):value;if(planStep<planQuestions.length-1){planStep++;showQuestion();return}for(const q of planQuestions)state[q.key]=planDraft[q.key];state.planComplete=true;persist();$('#plan-dialog').close();render();toast('Your plan is ready. Start with an honest check-in.');navigate('overview')};
 $('#question-back').onclick=()=>{planDraft[planQuestions[planStep].key]=$('#plan-answer').value;if(planStep>0){planStep--;showQuestion()}};
-$('#edit-plan').onclick=openPlan;$('#plan-cancel').onclick=()=>$('#plan-dialog').close();$('#plan-dialog').addEventListener('cancel',e=>{if(!state.planComplete)e.preventDefault()});
+$('#edit-plan').onclick=openPlan;$('#resume-plan').onclick=openPlan;$('#plan-cancel').onclick=()=>$('#plan-dialog').close();
 
 render();if(!state.planComplete)openPlan();setInterval(render,30000);if(!storageOK)toast('Saved data could not be read. Export new entries to keep a backup.');
